@@ -33,9 +33,11 @@ namespace doxyxml2md
             public string id;
             public string className;
             public string type;
+            public string definition;
             public string name;
             public string nameSpace;
-            public string description;
+            public string shortDesc;
+            public string longDesc;
             public Kind compKind;
             public List<string> baseComps = new List<string>();
             public List<string> derivedComps = new List<string>();
@@ -50,9 +52,6 @@ namespace doxyxml2md
             public string location;
             public int bodyStart;
             public int bodyEnd;
-        }
-        class Property {
-            public string name;
         }
 
         static Dictionary<string, Compound> compounds;
@@ -86,6 +85,36 @@ namespace doxyxml2md
 			}
 			return res.ToArray();
 		}
+
+        static string processDesciption (XmlNode xn){
+            string desc = "";
+            foreach (XmlNode para in xn.ChildNodes)
+            {
+                if (para.Name != "para")
+                    throw new Exception("unknown tag in description");
+				foreach (XmlNode d in para.ChildNodes)
+				{
+                    /*if (d.NodeType == XmlNodeType.Text)
+                    {
+                        desc += d.Value + "\n";
+                        continue;
+                    }*/
+                    if (d.Name == "itemizedlist"){
+                        desc += "\n";
+                        foreach (XmlNode item in d.ChildNodes)
+                        {
+                            desc += "* " + item.InnerText + "\n";
+                        }
+                        continue;
+                    }
+                    desc += d.InnerText;
+                }
+                desc += "\n";
+            }
+            //if (!string.IsNullOrEmpty(desc))
+            //    System.Diagnostics.Debugger.Break();
+            return desc;
+        }
 
         public static void process (string input, string output){
             compounds = new Dictionary<string, Compound>();
@@ -126,7 +155,10 @@ namespace doxyxml2md
 							c.derivedComps.Add(xn.InnerText);
 							break;
 						case "briefdescription":
-							c.description = xn.FirstChild?.InnerText;
+							c.shortDesc = processDesciption(xn);
+							break;
+						case "detaileddescription":
+                            c.longDesc = processDesciption(xn);
 							break;
 						case "sectiondef":                            
                             foreach (XmlNode memb in xn.ChildNodes)
@@ -140,9 +172,10 @@ namespace doxyxml2md
                                     switch (membAtts.Name)
                                     {
 										case "type":
-                                            p.type = membAtts.InnerText;
+                                            p.type = membAtts.InnerText?.Split(' ').LastOrDefault();
 											break;
 										case "definition":
+                                            p.definition = membAtts.InnerText;
 											break;
 										case "name":
                                             p.name = membAtts.InnerText;
@@ -159,7 +192,10 @@ namespace doxyxml2md
 												p.bodyEnd = tmp;
 											break;
 										case "briefdescription":
-                                            p.description = membAtts.FirstChild?.InnerText;
+											p.shortDesc = processDesciption(membAtts);
+											break;
+										case "detaileddescription":
+											p.longDesc = processDesciption(membAtts);
 											break;
 									}
                                 }
@@ -177,8 +213,12 @@ namespace doxyxml2md
 				using (Stream os = new FileStream(Path.Combine(output, c.className) + ".md", FileMode.Create))
 				{
 					using (StreamWriter sr = new StreamWriter(os))
-					{					
-						sr.WriteLine("namespace:  `{0}`\n\n", c.nameSpace);
+					{
+						sr.WriteLine(c.shortDesc);
+						sr.WriteLine();
+                        sr.WriteLine(c.longDesc);
+						sr.WriteLine();
+						sr.WriteLine("**namespace**:  `{0}`\n\n", c.nameSpace);
 
 						sr.WriteLine("#### Inheritance Hierarchy\n");
 
@@ -214,12 +254,12 @@ namespace doxyxml2md
                         sr.WriteLine("```");
 
                         sr.WriteLine("#### Constructors\n");
-						sr.WriteLine("| | prototype | description | link");
+						sr.WriteLine("| :white_large_square: | prototype | description | link");
 						sr.WriteLine("| --- | --- | --- | --- |");
 						foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Function && mb.name == c.className))
 						{
-							sr.Write("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_ | [:octocat:]({4}",
-										 prop.type, prop.name?.Trim(), prop.argsstring, prop.description?.Trim(),
+							sr.Write("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_ | [:link:]({4}",
+										 prop.type, prop.name?.Trim(), prop.argsstring, prop.shortDesc?.Trim(),
 										prop.location);
 							if (prop.bodyStart > 0)
 							{
@@ -231,31 +271,35 @@ namespace doxyxml2md
 						}
 
 						sr.WriteLine("#### Properties\n");
-                        sr.WriteLine("| | name | type | description |");
-                        sr.WriteLine("| --- | --- | --- | --- |");
-                        foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Property).OrderBy(mbb => mbb.name))
+                        sr.WriteLine("| :white_large_square: | name | description |");
+                        sr.WriteLine("| --- | --- | --- |");
+                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Property).OrderBy(mbb => mbb.name))
                         {
-                            sr.WriteLine("| [[/images/property.jpg]] | `{0}` | `{1}` | _{2}_ |", prop.name?.Trim(), prop.type, prop.description?.Trim());
+                            sr.WriteLine("| [[/images/property.jpg]] | `{0}` | _{1}_ |", cp.name?.Trim(), cp.shortDesc?.Trim());
                         }
                         sr.WriteLine("#### Methods\n");
-						sr.WriteLine("| | prototype | description | link");
+						sr.WriteLine("| :white_large_square: | prototype | description | link");
 						sr.WriteLine("| --- | --- | --- | --- |");
-                        foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Function && mb.name != c.className).OrderBy(mbb => mbb.name))
+                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Function && mb.name != c.className).OrderBy(mbb => mbb.name))
                         {
-                            sr.Write("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_ | [:octocat:]({4}",
-                                         prop.type, prop.name?.Trim(), prop.argsstring, prop.description?.Trim(),
-                                        prop.location);
-                            if (prop.bodyStart > 0)
+                            sr.Write("| [[/images/method.jpg]] | `{0} {1}{2}` | _{3}_ | [:link:]({4}",
+                                         cp.type, cp.name?.Trim(), cp.argsstring, cp.shortDesc?.Trim(),
+                                        cp.location);
+                            if (cp.bodyStart > 0)
                             {
-                                sr.Write("#L{0}", prop.bodyStart);
-                                if (prop.bodyEnd > prop.bodyStart)
-                                    sr.Write("-L{0}", prop.bodyEnd);
+                                sr.Write("#L{0}", cp.bodyStart);
+                                if (cp.bodyEnd > cp.bodyStart)
+                                    sr.Write("-L{0}", cp.bodyEnd);
                             }
                             sr.WriteLine(") |");
 						}
 						sr.WriteLine("#### Events\n");
-						sr.WriteLine("| | name | type | description |");
-						sr.WriteLine("| --- | --- | --- | --- |");
+						sr.WriteLine("| :white_large_square: | name | description |");
+						sr.WriteLine("| --- | --- | --- |");
+                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Event).OrderBy(mbb => mbb.name))
+						{
+							sr.WriteLine("| [[/images/event.jpg]] | `{0}` | _{1}_ |", cp.name?.Trim(), cp.shortDesc?.Trim());
+						}
                     }
 				}
 
@@ -273,7 +317,7 @@ namespace doxyxml2md
 						foreach (KeyValuePair<string, Compound> kc in nkc)
                         {
                             Compound c = kc.Value;
-                            sr.WriteLine("| [`{0}`]({0}) | _{1}_ |", c.className, c.description?.Trim());
+                            sr.WriteLine("| [`{0}`]({0}) | _{1}_ |", c.className, c.shortDesc?.Trim());
                         }
 					}
 				}

@@ -29,6 +29,12 @@ namespace doxyxml2md
             Event,
             Variable,
         }
+
+        class InheritanceData {
+            public int id;
+            public string name;
+            public int ancestor;
+        }
         class Compound {
             public string id;
             public string className;
@@ -116,7 +122,16 @@ namespace doxyxml2md
             return desc;
         }
 
+        static void printAncestor (StreamWriter sr, InheritanceData ih, ref string tabs){
+            if (ih.ancestor >= 0)
+                printAncestor(sr, inheritanceGraph[ih.ancestor], ref tabs);            
+			sr.WriteLine(tabs + "- [`{0}`]({0})", ih.name);
+			tabs += "  ";
+		}
+        static Dictionary<int, InheritanceData> inheritanceGraph;
         public static void process (string input, string output){
+            inheritanceGraph = new Dictionary<int, InheritanceData>();
+
             compounds = new Dictionary<string, Compound>();
             Directory.CreateDirectory(output);
 
@@ -160,6 +175,26 @@ namespace doxyxml2md
 						case "detaileddescription":
                             c.longDesc = processDesciption(xn);
 							break;
+						case "inheritancegraph":                            
+                            foreach (XmlNode node in xn.ChildNodes)
+                            {
+                                InheritanceData ih = new InheritanceData();
+                                ih.id = int.Parse(node.Attributes["id"].Value);
+                                ih.name = node["label"].InnerText?.Split('.').LastOrDefault();
+
+                                if (node["childnode"] == null)
+                                    ih.ancestor = -1;
+                                else
+                                    ih.ancestor = int.Parse(node["childnode"].Attributes["refid"].Value);
+
+                                if (inheritanceGraph.ContainsKey(ih.id)){
+                                    if (inheritanceGraph[ih.id].ancestor < 0)
+                                        inheritanceGraph[ih.id].ancestor = ih.ancestor;
+                                }else
+                                    inheritanceGraph[ih.id] = ih;
+                            }
+
+							break;							
 						case "sectiondef":                            
                             foreach (XmlNode memb in xn.ChildNodes)
                             {
@@ -212,27 +247,37 @@ namespace doxyxml2md
                 Compound c = kc.Value;
 				using (Stream os = new FileStream(Path.Combine(output, c.className) + ".md", FileMode.Create))
 				{
-					using (StreamWriter sr = new StreamWriter(os))
-					{
-						sr.WriteLine(c.shortDesc);
-						sr.WriteLine();
+                    using (StreamWriter sr = new StreamWriter(os))
+                    {
+                        sr.WriteLine(c.shortDesc);
+                        sr.WriteLine();
                         sr.WriteLine(c.longDesc);
-						sr.WriteLine();
-						sr.WriteLine("**namespace**:  `{0}`\n\n", c.nameSpace);
+                        sr.WriteLine();
+                        sr.WriteLine("**namespace**:  `{0}`\n\n", c.nameSpace);
 
-						sr.WriteLine("#### Inheritance Hierarchy\n");
+                        sr.WriteLine("#### Inheritance Hierarchy\n");
 
-                        Compound baseClass = findBaseClass(c);
-                        if (baseClass != null)
-                            sr.WriteLine("- [`{0}`]({0})", baseClass.className);
-						sr.WriteLine("   - `{0}`", c.className);
+                        //if (c.className == "ComboBox")
+                            //System.Diagnostics.Debugger.Break();
+                        string tabs = "";
+                        InheritanceData igThis = inheritanceGraph.Values.FirstOrDefault(nd => nd.name == c.className);
+                        if (igThis?.ancestor >= 0)
+                        {
+                            printAncestor(sr, inheritanceGraph[igThis.ancestor], ref tabs);
+                        }
+                        sr.WriteLine(tabs + "- `{0}`", c.className);
+						tabs += "  ";
+
+						Compound baseClass = findBaseClass(c);
+
                         foreach (string s in c.derivedComps)
                         {
                             Compound deriv = findCompoundByName(s);
                             if (deriv == null)
                                 continue;
-                            sr.WriteLine("      - [`{0}`]({0})", deriv.className);
+                            sr.WriteLine(tabs + "- [`{0}`]({0})", deriv.className);
                         }
+
                         sr.WriteLine("#### Syntax\n");
                         sr.WriteLine("```csharp");
                         sr.Write("public class {0}", c.className);
@@ -254,20 +299,12 @@ namespace doxyxml2md
                         sr.WriteLine("```");
 
                         sr.WriteLine("#### Constructors\n");
-						sr.WriteLine("| :white_large_square: | prototype | description | link");
-						sr.WriteLine("| --- | --- | --- | --- |");
+						sr.WriteLine("| :white_large_square: | prototype | description");
+						sr.WriteLine("| --- | --- | --- |");
 						foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Function && mb.name == c.className))
 						{
-							sr.Write("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_ | [:link:]({4}",
-										 prop.type, prop.name?.Trim(), prop.argsstring, prop.shortDesc?.Trim(),
-										prop.location);
-							if (prop.bodyStart > 0)
-							{
-								sr.Write("#L{0}", prop.bodyStart);
-								if (prop.bodyEnd > prop.bodyStart)
-									sr.Write("-L{0}", prop.bodyEnd);
-							}
-							sr.WriteLine(") |");
+							sr.WriteLine("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_",
+										 prop.type, prop.name?.Trim(), prop.argsstring, prop.shortDesc?.Trim());
 						}
 
 						sr.WriteLine("#### Properties\n");
@@ -278,20 +315,12 @@ namespace doxyxml2md
                             sr.WriteLine("| [[/images/property.jpg]] | `{0}` | _{1}_ |", cp.name?.Trim(), cp.shortDesc?.Trim());
                         }
                         sr.WriteLine("#### Methods\n");
-						sr.WriteLine("| :white_large_square: | prototype | description | link");
-						sr.WriteLine("| --- | --- | --- | --- |");
+						sr.WriteLine("| :white_large_square: | prototype | description |");
+						sr.WriteLine("| --- | --- | --- |");
                         foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Function && mb.name != c.className).OrderBy(mbb => mbb.name))
                         {
-                            sr.Write("| [[/images/method.jpg]] | `{0} {1}{2}` | _{3}_ | [:link:]({4}",
-                                         cp.type, cp.name?.Trim(), cp.argsstring, cp.shortDesc?.Trim(),
-                                        cp.location);
-                            if (cp.bodyStart > 0)
-                            {
-                                sr.Write("#L{0}", cp.bodyStart);
-                                if (cp.bodyEnd > cp.bodyStart)
-                                    sr.Write("-L{0}", cp.bodyEnd);
-                            }
-                            sr.WriteLine(") |");
+                            sr.WriteLine("| [[/images/method.jpg]] | `{0} {1}{2}` | _{3}_ |",
+                                         cp.type, cp.name?.Trim(), cp.argsstring, cp.shortDesc?.Trim());                            
 						}
 						sr.WriteLine("#### Events\n");
 						sr.WriteLine("| :white_large_square: | name | description |");

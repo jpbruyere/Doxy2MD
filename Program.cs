@@ -35,12 +35,13 @@ namespace Doxy2MD
 
         class InheritanceData {
             public int id;
+            public string refid;
             public string name;
             public int ancestor;
         }
         class Compound {
             public string id;
-            public string className;
+            public string ShortName;
             public string type;
             public string definition;
             public string FullName;
@@ -50,7 +51,7 @@ namespace Doxy2MD
             public Kind compKind;
             public List<string> baseComps = new List<string>();
             public List<string> derivedComps = new List<string>();
-            public List<Compound> members = new List<Compound>();
+            public List<string> memberIds = new List<string>();
             public string argsstring;
 
             public string GetSimpleName {
@@ -131,8 +132,11 @@ namespace Doxy2MD
 
         static void printAncestor (StreamWriter sr, InheritanceData ih, ref string tabs){
             if (ih.ancestor >= 0)
-                printAncestor(sr, inheritanceGraph[ih.ancestor], ref tabs);            
-			sr.WriteLine(tabs + "- [`{0}`]({0})", ih.name);
+                printAncestor(sr, inheritanceGraph[ih.ancestor], ref tabs);
+            if (ih.refid == null)//class not tracked
+			    sr.WriteLine(tabs + "- `{0}`", ih.name);
+            else
+                sr.WriteLine(tabs + "- [`{0}`]({1})", ih.name, compounds[ih.refid].FullName);
 			tabs += "  ";
 		}
         static Dictionary<int, InheritanceData> inheritanceGraph;
@@ -166,9 +170,12 @@ namespace Doxy2MD
                     {
                         case "compoundname":
                             c.FullName = xn.InnerText.Replace("::", ".");
-                            c.className = c.GetSimpleName;
-                            if (c.className.Length < c.FullName.Length - 1)
-                                c.nameSpace = c.FullName.Remove(c.FullName.Length - c.className.Length - 1);
+                            if (c.compKind != Kind.File)
+                            {
+                                c.ShortName = c.GetSimpleName;
+                                if (c.ShortName.Length < c.FullName.Length - 1)
+                                    c.nameSpace = c.FullName.Remove(c.FullName.Length - c.ShortName.Length - 1);
+                            }
                             break;
                         case "basecompoundref":
                             c.baseComps.Add(xn.InnerText);
@@ -188,6 +195,7 @@ namespace Doxy2MD
                                 InheritanceData ih = new InheritanceData();
                                 ih.id = int.Parse(node.Attributes["id"].Value);
                                 ih.name = node["label"].InnerText?.Split('.').LastOrDefault();
+                                ih.refid = node["link"]?.Attributes["refid"]?.Value;
 
                                 if (node["childnode"] == null)
                                     ih.ancestor = -1;
@@ -209,6 +217,7 @@ namespace Doxy2MD
                                 p.compKind = (Kind)Enum.Parse(typeof(Kind), memb.Attributes["kind"].Value, true);
                                 if (memb.Attributes["prot"]?.Value != "public")
                                     continue;
+                                p.id = memb.Attributes["id"].Value;
                                 foreach (XmlNode membAtts in memb.ChildNodes)
                                 {
                                     switch (membAtts.Name)
@@ -241,7 +250,8 @@ namespace Doxy2MD
 											break;
 									}
                                 }
-                                c.members.Add(p);
+                                c.memberIds.Add(p.id);
+                                compounds[p.id] = p;
                             }
                             break;
                     }
@@ -252,7 +262,7 @@ namespace Doxy2MD
             foreach (KeyValuePair<string,Compound> kc in compounds.Where(cp => cp.Value.compKind == Kind.Class))
             {
                 Compound c = kc.Value;
-				using (Stream os = new FileStream(Path.Combine(output, c.className) + ".md", FileMode.Create))
+				using (Stream os = new FileStream(Path.Combine(output, c.FullName) + ".md", FileMode.Create))
 				{
                     using (StreamWriter sr = new StreamWriter(os))
                     {
@@ -267,12 +277,12 @@ namespace Doxy2MD
                         //if (c.className == "ComboBox")
                             //System.Diagnostics.Debugger.Break();
                         string tabs = "";
-                        InheritanceData igThis = inheritanceGraph.Values.FirstOrDefault(nd => nd.name == c.className);
+                        InheritanceData igThis = inheritanceGraph.Values.FirstOrDefault(nd => nd.refid == c.id);
                         if (igThis?.ancestor >= 0)
                         {
                             printAncestor(sr, inheritanceGraph[igThis.ancestor], ref tabs);
                         }
-                        sr.WriteLine(tabs + "- `{0}`", c.className);
+                        sr.WriteLine(tabs + "- `{0}`", c.ShortName);
 						tabs += "  ";
 
 						Compound baseClass = findBaseClass(c);
@@ -282,24 +292,49 @@ namespace Doxy2MD
                             Compound deriv = findCompoundByName(s);
                             if (deriv == null)
                                 continue;
-                            sr.WriteLine(tabs + "- [`{0}`]({0})", deriv.className);
+                            sr.WriteLine(tabs + "- [`{0}`]({1})", deriv.ShortName, deriv.FullName);
                         }
 
                         sr.WriteLine("#### Syntax\n");
                         sr.WriteLine("```csharp");
-                        sr.Write("public class {0}", c.className);
+                        sr.Write("public class {0}", c.ShortName);
                         Compound[] ifaces = findIFaces(c);
                         int ifaceIdx = 0;
                         if (baseClass != null)
-                            sr.Write(" : {0}", baseClass.className);
+                            sr.Write(" : {0}", baseClass.ShortName);
                         else if (ifaces.Length > 0)
                         {
-                            sr.Write(" : {0}", ifaces[0].className);
+                            sr.Write(" : {0}", ifaces[0].ShortName);
                             ifaceIdx = 1;
                         }
                         while (ifaceIdx < ifaces.Length){
-                            sr.Write(", {0}", ifaces[ifaceIdx].className);
+                            sr.Write(", {0}", ifaces[ifaceIdx].ShortName);
                             ifaceIdx++;
+                        }
+
+                        List<Compound> pubCTORs = new List<Compound>();
+                        List<Compound> pubMethods = new List<Compound>();
+                        List<Compound> pubProperties = new List<Compound>();
+                        List<Compound> pubEvents = new List<Compound>();
+
+                        foreach (string memId in c.memberIds)
+                        {
+                            Compound m = compounds[memId];
+                            switch (m.compKind)
+                            {
+								case Kind.Function:
+                                    if (m.FullName == c.ShortName)
+                                        pubCTORs.Add(m);
+                                    else
+									    pubMethods.Add(m);
+									break;
+								case Kind.Property:
+									pubProperties.Add(m);
+									break;
+								case Kind.Event:
+									pubEvents.Add(m);
+									break;
+							}
                         }
 
                         sr.WriteLine("");
@@ -308,7 +343,7 @@ namespace Doxy2MD
                         sr.WriteLine("#### Constructors\n");
 						sr.WriteLine("| :white_large_square: | prototype | description");
 						sr.WriteLine("| --- | --- | --- |");
-						foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Function && mb.FullName == c.className))
+						foreach (Compound prop in pubCTORs)
 						{
 							sr.WriteLine("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_",
 										 prop.type, prop.FullName?.Trim(), prop.argsstring, prop.shortDesc?.Trim());
@@ -317,14 +352,14 @@ namespace Doxy2MD
 						sr.WriteLine("#### Properties\n");
                         sr.WriteLine("| :white_large_square: | name | description |");
                         sr.WriteLine("| --- | --- | --- |");
-                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Property).OrderBy(mbb => mbb.FullName))
+                        foreach (Compound cp in pubProperties.OrderBy(mbb => mbb.FullName))
                         {
                             sr.WriteLine("| [[/images/property.jpg]] | `{0}` | _{1}_ |", cp.FullName?.Trim(), cp.shortDesc?.Trim());
                         }
                         sr.WriteLine("#### Methods\n");
 						sr.WriteLine("| :white_large_square: | prototype | description |");
 						sr.WriteLine("| --- | --- | --- |");
-                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Function && mb.FullName != c.className).OrderBy(mbb => mbb.FullName))
+                        foreach (Compound cp in pubMethods.OrderBy(mbb => mbb.FullName))
                         {
                             sr.WriteLine("| [[/images/method.jpg]] | `{0} {1}{2}` | _{3}_ |",
                                          cp.type, cp.FullName?.Trim(), cp.argsstring, cp.shortDesc?.Trim());                            
@@ -332,7 +367,7 @@ namespace Doxy2MD
 						sr.WriteLine("#### Events\n");
 						sr.WriteLine("| :white_large_square: | name | description |");
 						sr.WriteLine("| --- | --- | --- |");
-                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Event).OrderBy(mbb => mbb.FullName))
+                        foreach (Compound cp in pubEvents.OrderBy(mbb => mbb.FullName))
 						{
 							sr.WriteLine("| [[/images/event.jpg]] | `{0}` | _{1}_ |", cp.FullName?.Trim(), cp.shortDesc?.Trim());
 						}
@@ -353,7 +388,7 @@ namespace Doxy2MD
 						foreach (KeyValuePair<string, Compound> kc in nkc)
                         {
                             Compound c = kc.Value;
-                            sr.WriteLine("| [`{0}`]({0}) | _{1}_ |", c.className, c.shortDesc?.Trim());
+                            sr.WriteLine("| [`{0}`]({1}) | _{2}_ |", c.ShortName, c.FullName, c.shortDesc?.Trim());
                         }
 					}
 				}

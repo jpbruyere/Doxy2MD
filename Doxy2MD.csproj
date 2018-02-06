@@ -5,8 +5,8 @@
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
     <ProjectGuid>{91A87B64-0F34-444C-8B9D-735DFC8887AA}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>doxyxml2md</RootNamespace>
-    <AssemblyName>doxyxml2md</AssemblyName>
+    <RootNamespace>Doxy2MD</RootNamespace>
+    <AssemblyName>doxy2md</AssemblyName>
     <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">

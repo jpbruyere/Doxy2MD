@@ -4,11 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Xml;
 
-namespace doxyxml2md
+namespace Doxy2MD
 {
     class MainClass
     {
         public static void printHelp () {
+            Console.WriteLine("doxy2md");
+            Console.WriteLine("=======\n");
             Console.WriteLine("doxygen xml to markdown converter\n");
             Console.WriteLine("usage: doxyxml2md [options] inputdirectory\n\n");
             Console.WriteLine("options:\n");
@@ -28,6 +30,7 @@ namespace doxyxml2md
             Function,
             Event,
             Variable,
+            Page,
         }
 
         class InheritanceData {
@@ -40,7 +43,7 @@ namespace doxyxml2md
             public string className;
             public string type;
             public string definition;
-            public string name;
+            public string FullName;
             public string nameSpace;
             public string shortDesc;
             public string longDesc;
@@ -52,19 +55,23 @@ namespace doxyxml2md
 
             public string GetSimpleName {
                 get {
-					return name.Split(new string[] { "." }, StringSplitOptions.None).LastOrDefault();					
+					return FullName.Split(new string[] { "." }, StringSplitOptions.None).LastOrDefault();					
 				}
             }
             public string location;
             public int bodyStart;
             public int bodyEnd;
+            public override string ToString()
+            {
+                return string.Format("[Compound: GetSimpleName={0}]", GetSimpleName);
+            }
         }
 
         static Dictionary<string, Compound> compounds;
 
         static Compound findCompoundByName (string name)
         {
-            Compound res = compounds.Values.Where(c => c.name == name).FirstOrDefault();
+            Compound res = compounds.Values.Where(c => c.FullName == name).FirstOrDefault();
             if (res == null)
                 Console.WriteLine("compound not found: {0}", name);
 			return res;
@@ -151,17 +158,17 @@ namespace doxyxml2md
                 if (comps == null)
                     continue;
                 c.id = comps.Attributes["id"].Value;
-                c.compKind = (Kind)Enum.Parse(typeof(Kind), comps.Attributes["kind"].Value, true);
+                c.compKind = (Kind)Enum.Parse(typeof(Kind), comps.Attributes["kind"]?.Value, true);
 
                 foreach (XmlNode xn in comps.ChildNodes)
                 {
                     switch (xn.Name)
                     {
                         case "compoundname":
-                            c.name = xn.InnerText.Replace("::", ".");
+                            c.FullName = xn.InnerText.Replace("::", ".");
                             c.className = c.GetSimpleName;
-                            if (c.className.Length < c.name.Length - 1)
-                                c.nameSpace = c.name.Remove(c.name.Length - c.className.Length - 1);
+                            if (c.className.Length < c.FullName.Length - 1)
+                                c.nameSpace = c.FullName.Remove(c.FullName.Length - c.className.Length - 1);
                             break;
                         case "basecompoundref":
                             c.baseComps.Add(xn.InnerText);
@@ -213,7 +220,7 @@ namespace doxyxml2md
                                             p.definition = membAtts.InnerText;
 											break;
 										case "name":
-                                            p.name = membAtts.InnerText;
+                                            p.FullName = membAtts.InnerText;
 											break;
 										case "argsstring":
 											p.argsstring = membAtts.InnerText;
@@ -301,33 +308,33 @@ namespace doxyxml2md
                         sr.WriteLine("#### Constructors\n");
 						sr.WriteLine("| :white_large_square: | prototype | description");
 						sr.WriteLine("| --- | --- | --- |");
-						foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Function && mb.name == c.className))
+						foreach (Compound prop in c.members.Where(mb => mb.compKind == Kind.Function && mb.FullName == c.className))
 						{
 							sr.WriteLine("| [[/images/method.jpg]] | `{0} {1} {2}` | _{3}_",
-										 prop.type, prop.name?.Trim(), prop.argsstring, prop.shortDesc?.Trim());
+										 prop.type, prop.FullName?.Trim(), prop.argsstring, prop.shortDesc?.Trim());
 						}
 
 						sr.WriteLine("#### Properties\n");
                         sr.WriteLine("| :white_large_square: | name | description |");
                         sr.WriteLine("| --- | --- | --- |");
-                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Property).OrderBy(mbb => mbb.name))
+                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Property).OrderBy(mbb => mbb.FullName))
                         {
-                            sr.WriteLine("| [[/images/property.jpg]] | `{0}` | _{1}_ |", cp.name?.Trim(), cp.shortDesc?.Trim());
+                            sr.WriteLine("| [[/images/property.jpg]] | `{0}` | _{1}_ |", cp.FullName?.Trim(), cp.shortDesc?.Trim());
                         }
                         sr.WriteLine("#### Methods\n");
 						sr.WriteLine("| :white_large_square: | prototype | description |");
 						sr.WriteLine("| --- | --- | --- |");
-                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Function && mb.name != c.className).OrderBy(mbb => mbb.name))
+                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Function && mb.FullName != c.className).OrderBy(mbb => mbb.FullName))
                         {
                             sr.WriteLine("| [[/images/method.jpg]] | `{0} {1}{2}` | _{3}_ |",
-                                         cp.type, cp.name?.Trim(), cp.argsstring, cp.shortDesc?.Trim());                            
+                                         cp.type, cp.FullName?.Trim(), cp.argsstring, cp.shortDesc?.Trim());                            
 						}
 						sr.WriteLine("#### Events\n");
 						sr.WriteLine("| :white_large_square: | name | description |");
 						sr.WriteLine("| --- | --- | --- |");
-                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Event).OrderBy(mbb => mbb.name))
+                        foreach (Compound cp in c.members.Where(mb => mb.compKind == Kind.Event).OrderBy(mbb => mbb.FullName))
 						{
-							sr.WriteLine("| [[/images/event.jpg]] | `{0}` | _{1}_ |", cp.name?.Trim(), cp.shortDesc?.Trim());
+							sr.WriteLine("| [[/images/event.jpg]] | `{0}` | _{1}_ |", cp.FullName?.Trim(), cp.shortDesc?.Trim());
 						}
                     }
 				}
@@ -357,7 +364,13 @@ namespace doxyxml2md
 
         public static void Main(string[] args)
         {
-            string output = "",
+			Console.WriteLine("Doxy2MD");
+			Console.WriteLine("=======\n");
+            if (args.Length == 0){
+                printHelp();
+                return;
+            }
+			string output = "",
             input = "";
             for (int i = 0; i < args.Length; i++)
             {
@@ -388,11 +401,11 @@ namespace doxyxml2md
                 if (!Directory.Exists(input)){
 					Console.WriteLine("input path not found: {0}", input);
 					printHelp();
+                    return;
 				}
-
-                process(input,output);
-
             }
-        }
+            Console.WriteLine("Processing: {0} => {1}", input, output);
+			process(input, output);
+		}
     }
 }

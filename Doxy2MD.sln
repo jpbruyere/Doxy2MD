@@ -1,7 +1,7 @@
 
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "doxyxml2md", "doxyxml2md.csproj", "{91A87B64-0F34-444C-8B9D-735DFC8887AA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Doxy2MD", "Doxy2MD.csproj", "{91A87B64-0F34-444C-8B9D-735DFC8887AA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

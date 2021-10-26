@@ -31,6 +31,7 @@ namespace Doxy2MD
             Event,
             Variable,
             Page,
+            TypeDef
         }
 
         class InheritanceData {
@@ -56,7 +57,7 @@ namespace Doxy2MD
 
             public string GetSimpleName {
                 get {
-					return FullName.Split(new string[] { "." }, StringSplitOptions.None).LastOrDefault();					
+					return FullName.Split(new string[] { "." }, StringSplitOptions.None).LastOrDefault();
 				}
             }
             public string location;
@@ -68,8 +69,6 @@ namespace Doxy2MD
             }
         }
 
-        static Dictionary<string, Compound> compounds;
-
         static Compound findCompoundByName (string name)
         {
             Compound res = compounds.Values.Where(c => c.FullName == name).FirstOrDefault();
@@ -77,7 +76,6 @@ namespace Doxy2MD
                 Console.WriteLine("compound not found: {0}", name);
 			return res;
         }
-
         static Compound findBaseClass (Compound c){
             foreach (string s in c.baseComps)
             {
@@ -87,7 +85,6 @@ namespace Doxy2MD
             }
             return null;
         }
-		
         static Compound[] findIFaces(Compound c)
 		{
             List<Compound> res = new List<Compound>();
@@ -120,7 +117,11 @@ namespace Doxy2MD
                             desc += "* " + item.InnerText + "\n";
                         }
                         continue;
+                    }else if (d.Name == "ref"){
+                        desc += "`" + d.InnerText + "`";
+                        continue;
                     }
+
                     desc += d.InnerText;
                 }
                 desc += "\n";
@@ -139,8 +140,7 @@ namespace Doxy2MD
                 sr.WriteLine(tabs + "- [`{0}`]({1})", ih.name, compounds[ih.refid].FullName);
 			tabs += "  ";
 		}
-        static Dictionary<int, InheritanceData> inheritanceGraph;
-        public static void process (string input, string output){
+        static void process (string input, string output){
             inheritanceGraph = new Dictionary<int, InheritanceData>();
 
             compounds = new Dictionary<string, Compound>();
@@ -189,7 +189,7 @@ namespace Doxy2MD
 						case "detaileddescription":
                             c.longDesc = processDesciption(xn);
 							break;
-						case "inheritancegraph":                            
+						case "inheritancegraph":
                             foreach (XmlNode node in xn.ChildNodes)
                             {
                                 InheritanceData ih = new InheritanceData();
@@ -209,8 +209,8 @@ namespace Doxy2MD
                                     inheritanceGraph[ih.id] = ih;
                             }
 
-							break;							
-						case "sectiondef":                            
+							break;
+						case "sectiondef":
                             foreach (XmlNode memb in xn.ChildNodes)
                             {
                                 Compound p = new Compound();
@@ -280,7 +280,7 @@ namespace Doxy2MD
                         InheritanceData igThis = inheritanceGraph.Values.FirstOrDefault(nd => nd.refid == c.id);
                         if (igThis?.ancestor >= 0)
                         {
-                            printAncestor(sr, inheritanceGraph[igThis.ancestor], ref tabs);
+                            //printAncestor(sr, inheritanceGraph[igThis.ancestor], ref tabs);
                         }
                         sr.WriteLine(tabs + "- `{0}`", c.ShortName);
 						tabs += "  ";
@@ -362,7 +362,7 @@ namespace Doxy2MD
                         foreach (Compound cp in pubMethods.OrderBy(mbb => mbb.FullName))
                         {
                             sr.WriteLine("| [[/images/method.jpg]] | `{0} {1}{2}` | _{3}_ |",
-                                         cp.type, cp.FullName?.Trim(), cp.argsstring, cp.shortDesc?.Trim());                            
+                                         cp.type, cp.FullName?.Trim(), cp.argsstring, cp.shortDesc?.Trim());
 						}
 						sr.WriteLine("#### Events\n");
 						sr.WriteLine("| :white_large_square: | name | description |");
@@ -375,7 +375,7 @@ namespace Doxy2MD
 				}
 
 			}
-			
+
             using (Stream os = new FileStream(Path.Combine(output, "index.md"), FileMode.Create))
 			{
 				using (StreamWriter sr = new StreamWriter(os))
@@ -397,7 +397,10 @@ namespace Doxy2MD
         }
 
 
-        public static void Main(string[] args)
+		static Dictionary<string, Compound> compounds;
+		static Dictionary<int, InheritanceData> inheritanceGraph;
+
+		public static void Main(string[] args)
         {
 			Console.WriteLine("Doxy2MD");
 			Console.WriteLine("=======\n");
@@ -411,7 +414,7 @@ namespace Doxy2MD
             {
                 string arg = args[i];
 
-                if (arg.StartsWith("-"))
+                if (arg.StartsWith("-", StringComparison.Ordinal))
                 {
                     switch (arg)
                     {

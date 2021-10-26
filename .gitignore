@@ -1,6 +1,7 @@
 # Autosave files
 *~
-
+.vs
+.vscode
 # build
 [Oo]bj/
 [Bb]in/
